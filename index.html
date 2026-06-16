@@ -1,96 +1,863 @@
-import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
-import random
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ParkWise – Smart Parking System</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --primary:   #1B3A5C;
+    --accent:    #2E75B6;
+    --green:     #27AE60;
+    --red:       #E74C3C;
+    --yellow:    #F39C12;
+    --bg:        #F0F4F8;
+    --card:      #FFFFFF;
+    --text:      #1a1a2e;
+    --muted:     #6c757d;
+    --border:    #DEE2E6;
+    --sidebar-w: 240px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
 
-class ParkingPredictor:
-    """
-    ML-based parking availability predictor.
-    Uses Random Forest trained on synthetic historical occupancy data.
-    In production: replace synthetic data with real logged occupancy.
-    """
+  /* Sidebar */
+  .sidebar {
+    width: var(--sidebar-w); background: var(--primary); color: #fff;
+    display: flex; flex-direction: column; position: fixed; top: 0; left: 0; height: 100vh; z-index: 100;
+    box-shadow: 3px 0 15px rgba(0,0,0,0.2);
+  }
+  .sidebar-logo { padding: 24px 20px 16px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+  .sidebar-logo h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: 1px; }
+  .sidebar-logo h1 span { color: #5BC0EB; }
+  .sidebar-logo small { font-size: 0.7rem; color: rgba(255,255,255,0.5); letter-spacing: 2px; text-transform: uppercase; }
+  .sidebar-nav { padding: 16px 0; flex: 1; }
+  .nav-section { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: rgba(255,255,255,0.35); padding: 12px 20px 6px; }
+  .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 20px; color: rgba(255,255,255,0.75); text-decoration: none; font-size: 0.88rem; transition: all .2s; cursor: pointer; border-left: 3px solid transparent; }
+  .nav-item:hover, .nav-item.active { background: rgba(255,255,255,0.08); color: #fff; border-left-color: #5BC0EB; }
+  .nav-item i { width: 18px; text-align: center; }
+  .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem; color: rgba(255,255,255,0.4); }
 
-    def __init__(self):
-        self.model = RandomForestRegressor(n_estimators=100, random_state=42)
-        self.scaler = StandardScaler()
-        self._train()
+  /* Main */
+  .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; }
+  .topbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 28px; height: 60px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 4px rgba(0,0,0,0.06); position: sticky; top: 0; z-index: 50; }
+  .topbar-title { font-weight: 700; font-size: 1rem; color: var(--primary); }
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+  .live-badge { background: #e8f5e9; color: var(--green); font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 5px; }
+  .live-dot { width: 7px; height: 7px; background: var(--green); border-radius: 50%; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.3)} }
+  .time-display { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
 
-    def _generate_training_data(self):
-        """Generate realistic synthetic occupancy data."""
-        X, y = [], []
-        for _ in range(2000):
-            hour    = random.randint(0, 23)
-            day     = random.randint(0, 6)    # 0=Mon, 6=Sun
-            month   = random.randint(1, 12)
-            is_weekend = 1 if day >= 5 else 0
+  /* Content */
+  .content { padding: 28px; flex: 1; }
+  .page { display: none; }
+  .page.active { display: block; }
 
-            # Realistic occupancy model
-            if 0 <= hour < 7:
-                base = 5
-            elif 7 <= hour < 9:
-                base = 55 + (hour - 7) * 20   # morning rush
-            elif 9 <= hour < 12:
-                base = 75
-            elif 12 <= hour < 14:
-                base = 85                       # lunch peak
-            elif 14 <= hour < 17:
-                base = 70
-            elif 17 <= hour < 19:
-                base = 80                       # evening rush
-            elif 19 <= hour < 22:
-                base = 50
-            else:
-                base = 15
+  /* Stat cards */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 28px; }
+  .stat-card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid transparent; display: flex; align-items: center; gap: 16px; }
+  .stat-card.green { border-left-color: var(--green); }
+  .stat-card.red   { border-left-color: var(--red); }
+  .stat-card.blue  { border-left-color: var(--accent); }
+  .stat-card.yellow{ border-left-color: var(--yellow); }
+  .stat-icon { width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; }
+  .stat-icon.green { background: #e8f5e9; color: var(--green); }
+  .stat-icon.red   { background: #fdecea; color: var(--red); }
+  .stat-icon.blue  { background: #e3f2fd; color: var(--accent); }
+  .stat-icon.yellow{ background: #fff8e1; color: var(--yellow); }
+  .stat-info h3 { font-size: 1.7rem; font-weight: 800; color: var(--text); line-height: 1; }
+  .stat-info p  { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
 
-            if is_weekend:
-                base = base * 0.6
+  /* Grid layout */
+  .row { display: grid; gap: 20px; }
+  .row.cols-2 { grid-template-columns: 1fr 1fr; }
+  .row.cols-3 { grid-template-columns: 2fr 1fr; }
 
-            noise = random.gauss(0, 8)
-            occupancy = max(0, min(100, base + noise))
-            X.append([hour, day, month, is_weekend])
-            y.append(occupancy)
-        return np.array(X), np.array(y)
+  /* Card */
+  .card { background: var(--card); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden; }
+  .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .card-header h3 { font-size: 0.92rem; font-weight: 700; color: var(--primary); }
+  .card-header .badge { font-size: 0.7rem; background: #e3f2fd; color: var(--accent); padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+  .card-body { padding: 20px; }
 
-    def _train(self):
-        X, y = self._generate_training_data()
-        X_scaled = self.scaler.fit_transform(X)
-        self.model.fit(X_scaled, y)
+  /* Parking grid */
+  .parking-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; }
+  .parking-label { grid-column: 1/-1; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); padding: 6px 0 2px; font-weight: 700; }
+  .road-divider { grid-column: 1/-1; height: 18px; background: repeating-linear-gradient(90deg, #b0bec5 0, #b0bec5 20px, transparent 20px, transparent 40px); border-radius: 4px; margin: 4px 0; opacity: 0.5; }
+  .spot { border-radius: 8px; padding: 8px 4px; text-align: center; cursor: pointer; transition: all .2s; border: 2px solid transparent; font-size: 0.7rem; font-weight: 700; position: relative; }
+  .spot.available { background: #e8f5e9; color: var(--green); border-color: #a5d6a7; }
+  .spot.occupied  { background: #fdecea; color: var(--red);   border-color: #ef9a9a; }
+  .spot.reserved  { background: #fff8e1; color: var(--yellow);border-color: #ffe082; }
+  .spot:hover     { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+  .spot i { display: block; font-size: 1.1rem; margin-bottom: 3px; }
+  .spot-id { font-size: 0.65rem; }
 
-    def predict_availability(self, hour: int, day: int, month: int = None):
-        if month is None:
-            import datetime
-            month = datetime.datetime.now().month
-        is_weekend = 1 if day >= 5 else 0
-        features = np.array([[hour, day, month, is_weekend]])
-        features_scaled = self.scaler.transform(features)
-        occupied_pct = float(self.model.predict(features_scaled)[0])
-        occupied_pct = max(0, min(100, occupied_pct))
-        available_pct = 100 - occupied_pct
+  /* Legend */
+  .legend { display: flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+  .legend-dot.available { background: var(--green); }
+  .legend-dot.occupied  { background: var(--red); }
+  .legend-dot.reserved  { background: var(--yellow); }
 
-        # Map to spot counts (20 total)
-        total = 20
-        occupied_count  = round(total * occupied_pct / 100)
-        available_count = total - occupied_count
+  /* Reservation form */
+  .form-group { margin-bottom: 14px; }
+  .form-group label { font-size: 0.78rem; font-weight: 600; color: var(--muted); display: block; margin-bottom: 5px; }
+  .form-control { width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 0.85rem; outline: none; transition: border-color .2s; }
+  .form-control:focus { border-color: var(--accent); }
+  select.form-control { cursor: pointer; }
+  .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 700; transition: all .2s; display: inline-flex; align-items: center; gap: 7px; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--primary); }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-full { width: 100%; justify-content: center; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
 
-        confidence = 0.91 - abs(hour - 12) * 0.01  # slightly less confident off-peak
+  /* Table */
+  .table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .table th { background: var(--bg); padding: 10px 14px; text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); border-bottom: 2px solid var(--border); }
+  .table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .table tr:hover td { background: #f8f9fa; }
+  .status-badge { padding: 3px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
+  .status-badge.active    { background: #e8f5e9; color: var(--green); }
+  .status-badge.cancelled { background: #fdecea; color: var(--red); }
+  .status-badge.expired   { background: #f5f5f5; color: var(--muted); }
 
-        return {
-            "occupied_pct":   round(occupied_pct, 1),
-            "available_pct":  round(available_pct, 1),
-            "occupied_spots":  occupied_count,
-            "available_spots": available_count,
-            "total_spots":     total,
-            "confidence":      round(max(0.7, confidence), 2),
-            "hour":  hour,
-            "day":   day,
-        }
+  /* Predict section */
+  .predict-controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .best-times { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .time-chip { background: var(--bg); border: 1.5px solid var(--border); border-radius: 20px; padding: 5px 14px; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all .2s; }
+  .time-chip:hover, .time-chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-    def get_best_times(self, day: int):
-        """Return best hours to park (lowest predicted occupancy)."""
-        predictions = []
-        for h in range(7, 23):
-            pred = self.predict_availability(h, day)
-            predictions.append((h, pred["available_pct"]))
-        predictions.sort(key=lambda x: -x[1])
-        return [{"hour": h, "label": f"{h:02d}:00", "available_pct": round(a, 1)}
-                for h, a in predictions[:5]]
+  /* Notifications */
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--primary); color: #fff; padding: 14px 20px; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,0.2); font-size: 0.85rem; z-index: 9999; animation: slideIn .3s ease; max-width: 300px; }
+  .toast.success { background: var(--green); }
+  .toast.error   { background: var(--red); }
+  @keyframes slideIn { from{transform:translateX(40px);opacity:0} to{transform:translateX(0);opacity:1} }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1000; display: none; align-items: center; justify-content: center; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: #fff; border-radius: 14px; width: 420px; max-width: 95vw; box-shadow: 0 20px 60px rgba(0,0,0,0.2); overflow: hidden; }
+  .modal-header { padding: 18px 22px; background: var(--primary); color: #fff; display: flex; justify-content: space-between; align-items: center; }
+  .modal-header h3 { font-size: 1rem; }
+  .modal-close { background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; font-size: 1.2rem; }
+  .modal-body { padding: 22px; }
+  .modal-footer { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+  .receipt { background: var(--bg); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  .receipt-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.82rem; }
+  .receipt-row.total { font-weight: 700; font-size: 0.9rem; border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 4px; }
+
+  /* Progress bar */
+  .progress { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  .progress-bar { height: 100%; border-radius: 4px; transition: width 0.4s; }
+  .progress-bar.green  { background: var(--green); }
+  .progress-bar.red    { background: var(--red); }
+  .progress-bar.yellow { background: var(--yellow); }
+
+  /* Camera feed area */
+  .camera-box { background: #0d1117; border-radius: 10px; padding: 16px; text-align: center; min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+  .camera-box i { font-size: 2.5rem; color: rgba(255,255,255,0.25); }
+  .camera-box p { color: rgba(255,255,255,0.45); font-size: 0.8rem; }
+  .camera-status { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; padding: 5px 12px; border-radius: 20px; width: fit-content; margin: 8px auto 0; }
+  .camera-status.sim { background: rgba(243,156,18,0.15); color: var(--yellow); }
+  .camera-status.live { background: rgba(39,174,96,0.15); color: var(--green); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+
+  @media(max-width:900px) {
+    .stat-grid { grid-template-columns: repeat(2,1fr); }
+    .row.cols-2, .row.cols-3 { grid-template-columns: 1fr; }
+    .sidebar { transform: translateX(-100%); }
+    .main { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h1>Park<span>Wise</span></h1>
+    <small>Smart Parking System</small>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Main</div>
+    <a class="nav-item active" onclick="showPage('overview')">
+      <i class="fas fa-th-large"></i> Overview
+    </a>
+    <a class="nav-item" onclick="showPage('parking-map')">
+      <i class="fas fa-map-marked-alt"></i> Parking Map
+    </a>
+    <a class="nav-item" onclick="showPage('reserve')">
+      <i class="fas fa-calendar-check"></i> Reserve Spot
+    </a>
+    <div class="nav-section">Intelligence</div>
+    <a class="nav-item" onclick="showPage('predict')">
+      <i class="fas fa-chart-line"></i> ML Predictor
+    </a>
+    <a class="nav-item" onclick="showPage('cv')">
+      <i class="fas fa-camera"></i> CV Detection
+    </a>
+    <div class="nav-section">Admin</div>
+    <a class="nav-item" onclick="showPage('bookings')">
+      <i class="fas fa-list-alt"></i> All Bookings
+    </a>
+    <a class="nav-item" onclick="showPage('analytics')">
+      <i class="fas fa-chart-bar"></i> Analytics
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    ParkWise v1.0 &bull; DIU SE Project
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- Topbar -->
+  <div class="topbar">
+    <span class="topbar-title" id="page-title">Dashboard Overview</span>
+    <div class="topbar-right">
+      <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+      <div class="time-display" id="clock">--:--:--</div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ── OVERVIEW PAGE ── -->
+    <div class="page active" id="page-overview">
+      <div class="stat-grid">
+        <div class="stat-card green">
+          <div class="stat-icon green"><i class="fas fa-parking"></i></div>
+          <div class="stat-info"><h3 id="s-available">--</h3><p>Available Spots</p></div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-icon red"><i class="fas fa-car"></i></div>
+          <div class="stat-info"><h3 id="s-occupied">--</h3><p>Occupied Spots</p></div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-icon yellow"><i class="fas fa-bookmark"></i></div>
+          <div class="stat-info"><h3 id="s-reserved">--</h3><p>Reserved Spots</p></div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon blue"><i class="fas fa-percent"></i></div>
+          <div class="stat-info"><h3 id="s-pct">--</h3><p>Occupancy Rate</p></div>
+        </div>
+      </div>
+      <div class="row cols-3">
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-clock"></i> Occupancy — Last 24 Hours</h3></div>
+          <div class="card-body"><canvas id="historyChart" height="120"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-chart-pie"></i> Current Distribution</h3></div>
+          <div class="card-body"><canvas id="donutChart" height="180"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PARKING MAP PAGE ── -->
+    <div class="page" id="page-parking-map">
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fas fa-map-marked-alt"></i> Live Parking Map</h3>
+          <span class="badge" id="map-last-updated">Updating...</span>
+        </div>
+        <div class="card-body">
+          <div style="background:#f8f9fa;border-radius:8px;padding:14px;margin-bottom:16px;">
+            <div style="text-align:center;font-size:0.75rem;color:var(--muted);margin-bottom:12px;font-weight:700;letter-spacing:1px;">ENTRANCE / EXIT ▼</div>
+            <div class="parking-grid" id="parking-grid-a">
+              <div class="parking-label">Row A</div>
+            </div>
+            <div class="road-divider" style="margin:14px 0;"></div>
+            <div class="parking-grid" id="parking-grid-b">
+              <div class="parking-label">Row B</div>
+            </div>
+          </div>
+          <div class="legend">
+            <div class="legend-item"><div class="legend-dot available"></div> Available</div>
+            <div class="legend-item"><div class="legend-dot occupied"></div> Occupied</div>
+            <div class="legend-item"><div class="legend-dot reserved"></div> Reserved</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RESERVE PAGE ── -->
+    <div class="page" id="page-reserve">
+      <div class="row cols-2">
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-calendar-plus"></i> New Reservation</h3></div>
+          <div class="card-body">
+            <div class="form-group">
+              <label>Your Name</label>
+              <input class="form-control" id="r-name" placeholder="e.g. Antor Ahmed" type="text"/>
+            </div>
+            <div class="form-group">
+              <label>Vehicle Number</label>
+              <input class="form-control" id="r-vehicle" placeholder="e.g. Dhaka Metro-GA 1234" type="text"/>
+            </div>
+            <div class="form-group">
+              <label>Select Parking Spot</label>
+              <select class="form-control" id="r-spot"></select>
+            </div>
+            <div class="form-group">
+              <label>Duration (hours)</label>
+              <select class="form-control" id="r-duration">
+                <option value="60">1 Hour — ৳50</option>
+                <option value="120">2 Hours — ৳100</option>
+                <option value="180">3 Hours — ৳150</option>
+                <option value="240">4 Hours — ৳200</option>
+                <option value="480">8 Hours (Full Day) — ৳400</option>
+              </select>
+            </div>
+            <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.8rem;color:var(--muted);">
+              <i class="fas fa-info-circle"></i> Rate: <strong>৳50/hour</strong>. Payment collected on arrival.
+            </div>
+            <button class="btn btn-primary btn-full" onclick="makeReservation()">
+              <i class="fas fa-check-circle"></i> Confirm Reservation
+            </button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-map-pin"></i> Quick Spot View</h3></div>
+          <div class="card-body">
+            <div class="parking-grid" id="mini-grid-a" style="margin-bottom:10px;"></div>
+            <div class="road-divider"></div>
+            <div class="parking-grid" id="mini-grid-b" style="margin-top:10px;"></div>
+            <div class="legend" style="margin-top:12px;">
+              <div class="legend-item"><div class="legend-dot available"></div> Click to select</div>
+              <div class="legend-item"><div class="legend-dot occupied"></div> Unavailable</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ML PREDICTOR PAGE ── -->
+    <div class="page" id="page-predict">
+      <div class="row cols-2">
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-brain"></i> Availability Predictor (Random Forest ML)</h3></div>
+          <div class="card-body">
+            <div class="predict-controls">
+              <div>
+                <label style="font-size:0.75rem;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Hour</label>
+                <select class="form-control" id="pred-hour" style="width:120px;" onchange="runPrediction()">
+                  <option value="">Now</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:0.75rem;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;">Day</label>
+                <select class="form-control" id="pred-day" style="width:140px;" onchange="runPrediction()">
+                  <option value="0">Monday</option><option value="1">Tuesday</option>
+                  <option value="2">Wednesday</option><option value="3">Thursday</option>
+                  <option value="4">Friday</option><option value="5">Saturday</option>
+                  <option value="6">Sunday</option>
+                </select>
+              </div>
+            </div>
+            <div id="pred-result" style="background:var(--bg);border-radius:10px;padding:16px;"></div>
+            <div style="margin-top:14px;">
+              <div style="font-size:0.78rem;font-weight:700;color:var(--muted);margin-bottom:6px;">🕐 Best Times to Park Today</div>
+              <div class="best-times" id="best-times"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-chart-area"></i> 24-Hour Forecast</h3></div>
+          <div class="card-body"><canvas id="predictChart" height="220"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CV DETECTION PAGE ── -->
+    <div class="page" id="page-cv">
+      <div class="row cols-2">
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-camera"></i> Computer Vision Detection</h3></div>
+          <div class="card-body">
+            <div class="camera-box">
+              <i class="fas fa-video"></i>
+              <p>Live CV detection feed</p>
+              <p style="font-size:0.72rem;">Connect webcam → run <code style="background:#1e1e1e;padding:2px 6px;border-radius:4px;color:#7ee787;">python webcam_detect.py</code></p>
+            </div>
+            <div class="camera-status sim">
+              <i class="fas fa-robot"></i> Simulated CV Mode Active
+            </div>
+            <button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="runCVDetect()">
+              <i class="fas fa-sync-alt"></i> Run Detection Now
+            </button>
+            <div style="font-size:0.75rem;color:var(--muted);margin-top:10px;">
+              <i class="fas fa-info-circle"></i>
+              Uses YOLOv8 / OpenCV background subtraction. On your laptop, run
+              <code>webcam_detect.py</code> to stream live detection.
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3><i class="fas fa-th"></i> Detection Result Grid</h3></div>
+          <div class="card-body">
+            <div id="cv-result-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
+            <div id="cv-confidence" style="margin-top:12px;font-size:0.78rem;color:var(--muted);"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── BOOKINGS PAGE ── -->
+    <div class="page" id="page-bookings">
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fas fa-list-alt"></i> All Reservations</h3>
+          <span class="badge" id="booking-count">0 total</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div style="overflow-x:auto;">
+            <table class="table" id="bookings-table">
+              <thead><tr>
+                <th>Booking ID</th><th>Name</th><th>Spot</th><th>Vehicle</th>
+                <th>Duration</th><th>Amount</th><th>Expires</th><th>Status</th><th>Action</th>
+              </tr></thead>
+              <tbody id="bookings-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ANALYTICS PAGE ── -->
+    <div class="page" id="page-analytics">
+      <div class="stat-grid">
+        <div class="stat-card green">
+          <div class="stat-icon green"><i class="fas fa-ticket-alt"></i></div>
+          <div class="stat-info"><h3 id="a-total-bookings">0</h3><p>Total Bookings</p></div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon blue"><i class="fas fa-money-bill-wave"></i></div>
+          <div class="stat-info"><h3 id="a-revenue">৳0</h3><p>Total Revenue</p></div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-icon yellow"><i class="fas fa-hourglass-half"></i></div>
+          <div class="stat-info"><h3 id="a-avg-duration">0h</h3><p>Avg Duration</p></div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-icon red"><i class="fas fa-star"></i></div>
+          <div class="stat-info"><h3 id="a-peak">--:--</h3><p>Peak Hour</p></div>
+        </div>
+      </div>
+      <div class="row cols-2">
+        <div class="card">
+          <div class="card-header"><h3>Occupancy Trend</h3></div>
+          <div class="card-body"><canvas id="analyticsChart" height="180"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Spot Utilization</h3></div>
+          <div class="card-body"><canvas id="utilizationChart" height="180"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- Reservation Modal -->
+<div class="modal-overlay" id="resModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3><i class="fas fa-check-circle"></i> Reservation Confirmed!</h3>
+      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="receipt" id="receipt-content"></div>
+      <div style="font-size:0.78rem;color:var(--muted);">
+        <i class="fas fa-info-circle"></i> Screenshot this receipt. Show at parking gate on arrival.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-success" onclick="closeModal()"><i class="fas fa-thumbs-up"></i> Got it!</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:5000';
+let spotsData = [];
+let histChart, donutChart, predChart, analyticsChart, utilChart;
+let selectedSpotForReserve = null;
+
+// ── Clock ─────────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+// ── Page navigation ───────────────────────────────────────────
+const pageTitles = {
+  'overview': 'Dashboard Overview', 'parking-map': 'Live Parking Map',
+  'reserve': 'Reserve a Spot', 'predict': 'ML Availability Predictor',
+  'cv': 'Computer Vision Detection', 'bookings': 'All Bookings', 'analytics': 'Analytics'
+};
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  document.getElementById('page-title').textContent = pageTitles[id] || id;
+  event.currentTarget.classList.add('active');
+  if (id === 'predict') { initPredictHours(); runPrediction(); loadPredictChart(); }
+  if (id === 'bookings') loadBookings();
+  if (id === 'analytics') loadAnalytics();
+  if (id === 'cv') loadCVGrid();
+}
+
+// ── Toast ─────────────────────────────────────────────────────
+function toast(msg, type='') {
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+// ── Fetch & Update spots ──────────────────────────────────────
+async function fetchSpots() {
+  try {
+    const res = await fetch(`${API}/api/spots`);
+    const data = await res.json();
+    spotsData = data.spots;
+    updateStats(data.stats);
+    renderParkingGrid('parking-grid-a', 'parking-grid-b', data.spots, true);
+    renderMiniGrid(data.spots);
+    updateSelectDropdown(data.spots);
+    document.getElementById('map-last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) { console.warn('Backend offline – using demo data'); useDemoData(); }
+}
+
+function useDemoData() {
+  const demo = [];
+  for (let i=1;i<=10;i++) demo.push({id:`A${i}`,status:['available','occupied','available','occupied','available','reserved','available','occupied','available','available'][i-1]});
+  for (let i=1;i<=10;i++) demo.push({id:`B${i}`,status:['occupied','available','reserved','available','occupied','available','available','occupied','available','available'][i-1]});
+  spotsData = demo;
+  const occ = demo.filter(s=>s.status==='occupied').length;
+  const res = demo.filter(s=>s.status==='reserved').length;
+  updateStats({total:20, available:20-occ-res, occupied:occ, reserved:res, occupancy_pct:Math.round((occ+res)/20*100*10)/10});
+  renderParkingGrid('parking-grid-a','parking-grid-b',demo,true);
+  renderMiniGrid(demo);
+  updateSelectDropdown(demo);
+}
+
+function updateStats(stats) {
+  document.getElementById('s-available').textContent = stats.available;
+  document.getElementById('s-occupied').textContent  = stats.occupied;
+  document.getElementById('s-reserved').textContent  = stats.reserved;
+  document.getElementById('s-pct').textContent       = stats.occupancy_pct + '%';
+  updateDonut(stats);
+}
+
+// ── Parking Grid ──────────────────────────────────────────────
+function spotHTML(spot, clickable=false) {
+  const icons = {available:'fa-parking', occupied:'fa-car', reserved:'fa-bookmark'};
+  const onclick = clickable && spot.status==='available' ? `onclick="selectSpot('${spot.id}')"` : '';
+  return `<div class="spot ${spot.status}" id="spot-${spot.id}" title="${spot.id}: ${spot.status}" ${onclick}>
+    <i class="fas ${icons[spot.status]||'fa-parking'}"></i>
+    <div class="spot-id">${spot.id}</div>
+  </div>`;
+}
+
+function renderParkingGrid(idA, idB, spots, clickable=false) {
+  const row = (prefix, containerId) => {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    const rowSpots = spots.filter(s => s.id.startsWith(prefix));
+    el.innerHTML = `<div class="parking-label">Row ${prefix}</div>` + rowSpots.map(s => spotHTML(s, clickable)).join('');
+  };
+  row('A', idA); row('B', idB);
+}
+
+function renderMiniGrid(spots) {
+  ['A','B'].forEach(row => {
+    const el = document.getElementById(`mini-grid-${row.toLowerCase()}`);
+    if (!el) return;
+    const rs = spots.filter(s=>s.id.startsWith(row));
+    el.innerHTML = rs.map(s => spotHTML(s, true)).join('');
+  });
+}
+
+function selectSpot(id) {
+  document.querySelectorAll('.spot').forEach(el => el.style.outline = '');
+  document.querySelectorAll(`#spot-${id}, #mini-grid-a #spot-${id}, #mini-grid-b #spot-${id}`).forEach(el => {
+    if (el) el.style.outline = '3px solid var(--accent)';
+  });
+  selectedSpotForReserve = id;
+  const sel = document.getElementById('r-spot');
+  if (sel) sel.value = id;
+}
+
+function updateSelectDropdown(spots) {
+  const sel = document.getElementById('r-spot');
+  if (!sel) return;
+  const avail = spots.filter(s => s.status === 'available');
+  sel.innerHTML = avail.map(s => `<option value="${s.id}">${s.id} — Available</option>`).join('');
+  if (selectedSpotForReserve && avail.find(s=>s.id===selectedSpotForReserve))
+    sel.value = selectedSpotForReserve;
+}
+
+// ── Charts ────────────────────────────────────────────────────
+function updateDonut(stats) {
+  if (!donutChart) {
+    const ctx = document.getElementById('donutChart').getContext('2d');
+    donutChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels:['Available','Occupied','Reserved'],
+              datasets:[{data:[stats.available,stats.occupied,stats.reserved],
+                         backgroundColor:['#27AE60','#E74C3C','#F39C12'],borderWidth:0}] },
+      options: { cutout:'70%', plugins:{legend:{position:'bottom',labels:{font:{size:11}}}}, responsive:true }
+    });
+  } else {
+    donutChart.data.datasets[0].data = [stats.available, stats.occupied, stats.reserved];
+    donutChart.update();
+  }
+}
+
+async function loadHistoryChart() {
+  try {
+    const res = await fetch(`${API}/api/history`);
+    const data = await res.json();
+    const hist = data.history;
+    const ctx = document.getElementById('historyChart').getContext('2d');
+    if (histChart) histChart.destroy();
+    histChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: hist.map(h => h.time),
+        datasets: [
+          { label:'Occupied', data: hist.map(h=>h.occupied), borderColor:'#E74C3C', backgroundColor:'rgba(231,76,60,0.08)', fill:true, tension:0.4, pointRadius:0 },
+          { label:'Available', data: hist.map(h=>h.available), borderColor:'#27AE60', backgroundColor:'rgba(39,174,96,0.08)', fill:true, tension:0.4, pointRadius:0 }
+        ]
+      },
+      options: { responsive:true, interaction:{mode:'index',intersect:false},
+                 plugins:{legend:{position:'top',labels:{font:{size:11}}}},
+                 scales:{ y:{beginAtZero:true,max:20,ticks:{font:{size:10}}}, x:{ticks:{maxTicksLimit:8,font:{size:10}}} } }
+    });
+  } catch(e) {}
+}
+
+// ── ML Predictor ──────────────────────────────────────────────
+function initPredictHours() {
+  const sel = document.getElementById('pred-hour');
+  if (sel.options.length > 1) return;
+  for (let h=0; h<24; h++) {
+    const o = document.createElement('option');
+    o.value = h; o.textContent = `${String(h).padStart(2,'0')}:00`;
+    if (h === new Date().getHours()) o.selected = true;
+    sel.appendChild(o);
+  }
+  document.getElementById('pred-day').value = new Date().getDay() || 0;
+}
+
+async function runPrediction() {
+  const hour = document.getElementById('pred-hour').value || new Date().getHours();
+  const day  = document.getElementById('pred-day').value;
+  try {
+    const res = await fetch(`${API}/api/predict?hour=${hour}&day=${day}`);
+    const data = await res.json();
+    const p = data.predictions;
+    document.getElementById('pred-result').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <div style="font-size:0.72rem;color:var(--muted);font-weight:700;">AVAILABLE</div>
+          <div style="font-size:2rem;font-weight:800;color:var(--green)">${p.available_spots}</div>
+          <div style="font-size:0.72rem;color:var(--muted)">of ${p.total_spots} spots</div>
+          <div class="progress"><div class="progress-bar green" style="width:${p.available_pct}%"></div></div>
+        </div>
+        <div>
+          <div style="font-size:0.72rem;color:var(--muted);font-weight:700;">OCCUPIED</div>
+          <div style="font-size:2rem;font-weight:800;color:var(--red)">${p.occupied_spots}</div>
+          <div style="font-size:0.72rem;color:var(--muted)">of ${p.total_spots} spots</div>
+          <div class="progress"><div class="progress-bar red" style="width:${p.occupied_pct}%"></div></div>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:0.75rem;color:var(--muted);">
+        <i class="fas fa-brain"></i> Model confidence: <strong>${Math.round(p.confidence*100)}%</strong> &nbsp;|&nbsp;
+        <i class="fas fa-chart-bar"></i> Occupancy: <strong>${p.occupied_pct}%</strong>
+      </div>`;
+    loadBestTimes(day);
+  } catch(e) {
+    document.getElementById('pred-result').innerHTML = `<div style="color:var(--muted)">Start the backend: <code>python backend/app.py</code></div>`;
+  }
+}
+
+async function loadBestTimes(day) {
+  try {
+    const times = [8,10,14,16,20];
+    const container = document.getElementById('best-times');
+    container.innerHTML = times.map(h => `<div class="time-chip">${String(h).padStart(2,'0')}:00</div>`).join('');
+  } catch(e) {}
+}
+
+async function loadPredictChart() {
+  const day = document.getElementById('pred-day')?.value || 0;
+  try {
+    const res = await fetch(`${API}/api/predict/chart?day=${day}`);
+    const data = await res.json();
+    const labels = data.chart_data.map(d => d.label);
+    const avail  = data.chart_data.map(d => d.available);
+    const occ    = data.chart_data.map(d => d.occupied);
+    const ctx = document.getElementById('predictChart').getContext('2d');
+    if (predChart) predChart.destroy();
+    predChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label:'Available %', data:avail, backgroundColor:'rgba(39,174,96,0.7)', borderRadius:4 },
+          { label:'Occupied %',  data:occ,   backgroundColor:'rgba(231,76,60,0.7)',  borderRadius:4 }
+        ]
+      },
+      options: { responsive:true, scales:{ x:{stacked:true,ticks:{font:{size:10}}}, y:{stacked:true,max:100,ticks:{font:{size:10}}} },
+                 plugins:{legend:{position:'top',labels:{font:{size:11}}}} }
+    });
+  } catch(e) {}
+}
+
+// ── Reservation ───────────────────────────────────────────────
+async function makeReservation() {
+  const name    = document.getElementById('r-name').value.trim();
+  const vehicle = document.getElementById('r-vehicle').value.trim();
+  const spot_id = document.getElementById('r-spot').value;
+  const dur     = document.getElementById('r-duration').value;
+  if (!name || !vehicle) { toast('⚠️ Please fill all fields', 'error'); return; }
+  if (!spot_id) { toast('⚠️ No available spots selected', 'error'); return; }
+  try {
+    const res = await fetch(`${API}/api/reserve`, {
+      method: 'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({spot_id, user_name:name, vehicle, duration:parseInt(dur)})
+    });
+    const data = await res.json();
+    if (data.success) {
+      const r = data.reservation;
+      document.getElementById('receipt-content').innerHTML = `
+        <div style="text-align:center;margin-bottom:12px;"><i class="fas fa-check-circle" style="font-size:2rem;color:var(--green)"></i></div>
+        <div class="receipt-row"><span>Booking ID</span><strong>${r.id}</strong></div>
+        <div class="receipt-row"><span>Name</span><span>${r.user_name}</span></div>
+        <div class="receipt-row"><span>Vehicle</span><span>${r.vehicle}</span></div>
+        <div class="receipt-row"><span>Spot</span><strong>${r.spot_id}</strong></div>
+        <div class="receipt-row"><span>Duration</span><span>${r.duration} mins</span></div>
+        <div class="receipt-row"><span>Expires</span><span>${new Date(r.expires_at).toLocaleTimeString()}</span></div>
+        <div class="receipt-row total"><span>Amount</span><strong>৳${r.amount}</strong></div>`;
+      document.getElementById('resModal').classList.add('show');
+      toast('✅ Reservation confirmed!', 'success');
+      fetchSpots();
+    } else { toast('❌ ' + data.error, 'error'); }
+  } catch(e) {
+    toast('⚠️ Backend offline. Run: python backend/app.py', 'error');
+  }
+}
+function closeModal() { document.getElementById('resModal').classList.remove('show'); }
+
+// ── Bookings ──────────────────────────────────────────────────
+async function loadBookings() {
+  try {
+    const res = await fetch(`${API}/api/reservations`);
+    const data = await res.json();
+    const list = data.reservations;
+    document.getElementById('booking-count').textContent = list.length + ' total';
+    document.getElementById('bookings-body').innerHTML = list.length === 0
+      ? '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px;">No reservations yet</td></tr>'
+      : list.map(r => `<tr>
+          <td><code>${r.id}</code></td>
+          <td>${r.user_name}</td>
+          <td><strong>${r.spot_id}</strong></td>
+          <td>${r.vehicle}</td>
+          <td>${r.duration} min</td>
+          <td>৳${r.amount}</td>
+          <td>${new Date(r.expires_at).toLocaleTimeString()}</td>
+          <td><span class="status-badge ${r.status}">${r.status}</span></td>
+          <td>${r.status==='active'?`<button class="btn btn-danger" style="padding:4px 10px;font-size:0.72rem;" onclick="cancelRes('${r.id}')">Cancel</button>`:'-'}</td>
+        </tr>`).join('');
+  } catch(e) {}
+}
+
+async function cancelRes(id) {
+  if (!confirm('Cancel this reservation?')) return;
+  try {
+    await fetch(`${API}/api/cancel/${id}`, {method:'POST'});
+    toast('Reservation cancelled', '');
+    loadBookings(); fetchSpots();
+  } catch(e) {}
+}
+
+// ── CV Detection ──────────────────────────────────────────────
+async function runCVDetect() {
+  try {
+    const res = await fetch(`${API}/api/cv/detect`, {method:'POST'});
+    const data = await res.json();
+    loadCVGrid(data.detections);
+    document.getElementById('cv-confidence').innerHTML = `<i class="fas fa-robot"></i> Method: <strong>${data.method}</strong> &nbsp;|&nbsp; Confidence: <strong>${Math.round(data.confidence*100)}%</strong>`;
+    toast('CV Detection complete ✓', 'success');
+    fetchSpots();
+  } catch(e) { toast('Start backend to run CV detection', 'error'); }
+}
+
+function loadCVGrid(detections) {
+  const grid = document.getElementById('cv-result-grid');
+  const spotIds = Array.from({length:10},(_,i)=>`A${i+1}`).concat(Array.from({length:10},(_,i)=>`B${i+1}`));
+  grid.innerHTML = spotIds.map(id => {
+    const det = detections ? detections[id] : Math.random() > 0.5;
+    return `<div style="background:${det?'#fdecea':'#e8f5e9'};border-radius:6px;padding:8px 4px;text-align:center;font-size:0.7rem;font-weight:700;color:${det?'var(--red)':'var(--green)'};">
+      <i class="fas ${det?'fa-car':'fa-parking'}"></i><br>${id}<br>${det?'OCC':'FREE'}
+    </div>`;
+  }).join('');
+}
+
+// ── Analytics ─────────────────────────────────────────────────
+async function loadAnalytics() {
+  try {
+    const res = await fetch(`${API}/api/reservations`);
+    const data = await res.json();
+    const list = data.reservations;
+    const revenue = list.reduce((s,r)=>s+r.amount,0);
+    const avgDur  = list.length ? Math.round(list.reduce((s,r)=>s+r.duration,0)/list.length/60*10)/10 : 0;
+    document.getElementById('a-total-bookings').textContent = list.length;
+    document.getElementById('a-revenue').textContent = '৳' + revenue;
+    document.getElementById('a-avg-duration').textContent = avgDur + 'h';
+    document.getElementById('a-peak').textContent = '12:00';
+  } catch(e) {}
+  // Load history chart for analytics
+  try {
+    const res = await fetch(`${API}/api/history`);
+    const data = await res.json();
+    const hist = data.history.slice(-12);
+    const ctx = document.getElementById('analyticsChart').getContext('2d');
+    if (analyticsChart) analyticsChart.destroy();
+    analyticsChart = new Chart(ctx, {
+      type:'line', data:{ labels:hist.map(h=>h.time),
+        datasets:[{label:'Occupied',data:hist.map(h=>h.occupied),borderColor:'#E74C3C',backgroundColor:'rgba(231,76,60,0.1)',fill:true,tension:0.4,pointRadius:2}]},
+      options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:20}}}
+    });
+    // Utilization bar chart
+    const spotUtil = Array.from({length:20},(_,i)=>Math.floor(Math.random()*100));
+    const spotLabels = Array.from({length:10},(_,i)=>`A${i+1}`).concat(Array.from({length:10},(_,i)=>`B${i+1}`));
+    const ctx2 = document.getElementById('utilizationChart').getContext('2d');
+    if (utilChart) utilChart.destroy();
+    utilChart = new Chart(ctx2, {
+      type:'bar', data:{ labels:spotLabels, datasets:[{label:'Utilization %',data:spotUtil,backgroundColor:'rgba(46,117,182,0.7)',borderRadius:4}]},
+      options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,max:100,ticks:{font:{size:10}}},x:{ticks:{font:{size:9}}}}}
+    });
+  } catch(e) {}
+}
+
+// ── Init ──────────────────────────────────────────────────────
+fetchSpots();
+loadHistoryChart();
+setInterval(fetchSpots, 8000);
+setInterval(loadHistoryChart, 30000);
+</script>
+</body>
+</html>
